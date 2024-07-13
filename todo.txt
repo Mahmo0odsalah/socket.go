@@ -1,5 +1,5 @@
-# Do we benefit from storing data about existing connections? https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API/Writing_WebSocket_servers#keeping_track_of_clients
-# Data exchange 
-# Handle closing the connection
-# Ping pongs
-# look into subprotocols
+[] Do we benefit from storing data about existing connections? https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API/Writing_WebSocket_servers#keeping_track_of_clients
+[] Data exchange 
+[x] Handle closing the connection
+[] Ping pongs
+[] look into subprotocols

@@ -60,7 +60,13 @@ func handleRequest(conn *net.TCPConn){
 				return
 			}
 			fmt.Printf("Read %d bytes: %v\n", n, buf[:n])
-			parseFrame(buf[:n])
+			if parseFrame(buf[:n]) == 8 {
+				r := make([]byte, n)
+				r[0] = buf[0]
+				fmt.Printf("%v\n", r)
+				conn.Write(r)
+				return
+			}
 		}
 	}
 }
@@ -134,7 +140,7 @@ func craftResponse(wsk string) []byte {
 	return []byte(smsg)
 }
 
-func parseFrame(fr []byte){
+func parseFrame(fr []byte) int{
 	fb := fr[0]
 	fn := int(fb) & 10000000
 	r1 := int(fb) & 01000000
@@ -142,4 +148,8 @@ func parseFrame(fr []byte){
 	r3 := int(fb) & 00010000
 	op := int(fb) & 00001111
 	println(fn, r1, r2, r3, op)
+	if op == 8 {
+		return 8
+	}
+	return 0
 }
