@@ -27,7 +27,7 @@ func main(){
 			log.Printf("Error while accepting a connection, %s\n", err)
 			continue
 		}
-
+		log.Println(conn)
 		go handleRequest(conn)
 	}
 }	
@@ -48,6 +48,20 @@ func handleRequest(conn *net.TCPConn){
 		r := craftResponse(wsk)
 		log.Default().Printf("Upgrading Connection, %s\n", r)
 		conn.Write(r)
+
+		for i := 0; i < n; i++ {
+			buf[i] = 0
+		}
+
+		for {
+			n, err = conn.Read(buf)
+			if err != nil {
+				log.Printf("Error while reading from a connection %s\n", err)
+				return
+			}
+			fmt.Printf("Read %d bytes: %v\n", n, buf[:n])
+			parseFrame(buf[:n])
+		}
 	}
 }
 
@@ -118,4 +132,14 @@ func craftResponse(wsk string) []byte {
 	k := b64.URLEncoding.EncodeToString(h[:])
 	smsg := fmt.Sprintf("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: %s\r\n\r\n", k)
 	return []byte(smsg)
+}
+
+func parseFrame(fr []byte){
+	fb := fr[0]
+	fn := int(fb) & 10000000
+	r1 := int(fb) & 01000000
+	r2 := int(fb) & 00100000
+	r3 := int(fb) & 00010000
+	op := int(fb) & 00001111
+	println(fn, r1, r2, r3, op)
 }
