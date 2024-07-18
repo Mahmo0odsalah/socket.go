@@ -8,6 +8,8 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"time"
+
 	"github.com/google/uuid"
 )
 
@@ -81,6 +83,7 @@ func serveEstablishedConnection(c connection){
 	// 3. The server decides to stop serving the client
 	// 4. An error happens while reading from the connection
 
+	go pingConnection(c)
 	buf := make([]byte, 65535) // Max size of a TCP packet
 	conn := c.conn
 
@@ -104,6 +107,33 @@ func serveEstablishedConnection(c connection){
 			return
 		}
 	}
+}
+
+func pingConnection(c connection){
+	unsuccessful_pings := 0
+
+	if len(c.ch) != 0 {
+		return
+	}
+
+	for {
+		if sendPing(c){
+			unsuccessful_pings = 0
+		} else {
+			unsuccessful_pings += 1
+		}
+
+		if unsuccessful_pings > 5 {
+			c.ch <- true
+			return
+		}
+
+		time.Sleep(5 * time.Second)
+	}
+}
+
+func sendPing(c connection) bool{
+	return true
 }
 
 func sendClose(c connection){
@@ -171,7 +201,7 @@ func validateHeaders(hls []string) (bool, string) {
 	return (uh && ch && kh && vh), wsk
 }
 
-func craftResponse(wsk string) []byte {
+func craftHTTPResponse(wsk string) []byte {
 	wsk += MS
 	h := sha1.Sum([]byte(wsk))
 	k := b64.URLEncoding.EncodeToString(h[:])
