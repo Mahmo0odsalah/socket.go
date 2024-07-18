@@ -15,6 +15,37 @@ import (
 
 const MS = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11" // WS magic string used for handshake
 
+type Bits uint16
+
+type firstByte struct {
+	fin Bits
+	rv1 Bits
+	rv2 Bits
+	rv3 Bits
+	opc Bits
+}
+
+func parseFirstByte(b int) firstByte{
+	return firstByte{
+		fin: Bits(b & 0b10000000)>>7,
+		rv1: Bits(b & 0b1000000)>>6,
+		rv2: Bits(b & 0b100000)>>5,
+		rv3: Bits(b & 0b10000)>>4,
+		opc: Bits(b & 0b1111)>>0,
+	}
+}
+
+func (fb firstByte)toByte() byte {
+	var b Bits
+
+	b |= (fb.fin << 7)
+	b |= (fb.rv1 << 6)
+	b |= (fb.rv2 << 5)
+	b |= (fb.rv3 << 4)
+	b |= (fb.opc)
+
+	return byte(b)
+}
 type connection struct {
 	identifier string
 	ch chan(bool)
@@ -87,9 +118,14 @@ func serveEstablishedConnection(c connection){
 	buf := make([]byte, 65535) // Max size of a TCP packet
 	conn := c.conn
 
+	defer func(){
+		c.ch <- true
+	}()
+
 	for {
 		if len(c.ch) != 0 {
 			go sendClose(c)
+			log.Println("Closing Connection")
 			return
 		}
 
@@ -99,10 +135,10 @@ func serveEstablishedConnection(c connection){
 			return
 		}
 		fmt.Printf("Read %d bytes: %v\n", n, buf[:n])
-		if parseFrame(buf[:n]) == 8 {
-			r := make([]byte, n)
-			r[0] = buf[0]
-			fmt.Printf("%v\n", r)
+		fb := parseFrame(buf[:n])
+		if  fb.opc == 8 {
+			fmt.Println("Received Close request")
+			r := craftControlWebSocketPacket("close")
 			conn.Write(r)
 			return
 		}
@@ -110,30 +146,35 @@ func serveEstablishedConnection(c connection){
 }
 
 func pingConnection(c connection){
-	unsuccessful_pings := 0
-
-	if len(c.ch) != 0 {
-		return
-	}
-
+	fails := 0
 	for {
-		if sendPing(c){
-			unsuccessful_pings = 0
-		} else {
-			unsuccessful_pings += 1
+		if len(c.ch) != 0 {
+			return
 		}
-
-		if unsuccessful_pings > 5 {
+		if sendPing(c){
+			fails = 0
+		} else {
+			fails += 1
+		}
+		if fails > 5 {
 			c.ch <- true
 			return
 		}
 
-		time.Sleep(5 * time.Second)
+		time.Sleep(10 * time.Second)
 	}
 }
 
 func sendPing(c connection) bool{
-	return true
+	conn := c.conn
+	
+	buf := craftControlWebSocketPacket("ping")
+	_, err := conn.Write(buf)
+	if err == nil {
+		return true
+	} else {
+		return false
+	}
 }
 
 func sendClose(c connection){
@@ -209,16 +250,27 @@ func craftHTTPResponse(wsk string) []byte {
 	return []byte(smsg)
 }
 
-func parseFrame(fr []byte) int{
-	fb := fr[0]
-	fn := int(fb) & 10000000
-	r1 := int(fb) & 01000000
-	r2 := int(fb) & 00100000
-	r3 := int(fb) & 00010000
-	op := int(fb) & 00001111
-	println(fn, r1, r2, r3, op)
-	if op == 8 {
-		return 8
+func craftControlWebSocketPacket(op string) []byte{
+	p := make([]byte, 6)
+
+	var fb firstByte
+	fb.fin = 1
+	switch op {
+	case "ping": 
+		fb.opc = 9
+	case "pong":
+		fb.opc = 10
+	case "close":
+		fb.opc = 8
 	}
-	return 0
+	p[0] = fb.toByte()
+	fmt.Println(p)
+	return p
+}
+
+func parseFrame(fr []byte) firstByte{
+	fb := parseFirstByte(int(fr[0]))
+	
+	// TODO: Return a packet struct
+	return fb
 }
