@@ -8,9 +8,24 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"github.com/google/uuid"
 )
 
 const MS = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11" // WS magic string used for handshake
+
+type connection struct {
+	identifier string
+	ch chan(bool)
+	conn *net.TCPConn
+}
+
+func newConnection(conn *net.TCPConn) connection{
+	c:= connection{ conn: conn }
+	c.ch = make(chan(bool), 10)
+	c.identifier = uuid.New().String()
+
+	return c
+}
 
 func main(){
 	la := net.TCPAddr{ Port: 8000 }
@@ -21,18 +36,24 @@ func main(){
 	}
 	defer l.Close()
 
+	connections := make(map[string] connection)
+
 	for {
 		conn, err := l.AcceptTCP()
 		if err != nil {
 			log.Printf("Error while accepting a connection, %s\n", err)
 			continue
 		}
-		log.Println(conn)
-		go handleRequest(conn)
+
+		c := newConnection(conn)
+
+		connections[c.identifier] = c
+		go handleRequest(c)
 	}
 }	
-func handleRequest(conn *net.TCPConn){
+func handleRequest(c connection){
 	buf := make([]byte, 65535) // Max size of a TCP packet
+	conn := c.conn
 	n, err := conn.Read(buf)
 
 	if err != nil {
@@ -45,30 +66,48 @@ func handleRequest(conn *net.TCPConn){
 	hls := parsePacket(p)
 	vh, wsk := validateHeaders(hls)
 	if vh {
-		r := craftResponse(wsk)
+		r := craftHTTPResponse(wsk)
 		log.Default().Printf("Upgrading Connection, %s\n", r)
 		conn.Write(r)
 
-		for i := 0; i < n; i++ {
-			buf[i] = 0
+		go serveEstablishedConnection(c)
+	}
+}
+
+func serveEstablishedConnection(c connection){
+	// A connection is served until one of the following happens:
+	// 1. A close is sent from the client
+	// 2. A client doesn't respond to a ping
+	// 3. The server decides to stop serving the client
+	// 4. An error happens while reading from the connection
+
+	buf := make([]byte, 65535) // Max size of a TCP packet
+	conn := c.conn
+
+	for {
+		if len(c.ch) != 0 {
+			go sendClose(c)
+			return
 		}
 
-		for {
-			n, err = conn.Read(buf)
-			if err != nil {
-				log.Printf("Error while reading from a connection %s\n", err)
-				return
-			}
-			fmt.Printf("Read %d bytes: %v\n", n, buf[:n])
-			if parseFrame(buf[:n]) == 8 {
-				r := make([]byte, n)
-				r[0] = buf[0]
-				fmt.Printf("%v\n", r)
-				conn.Write(r)
-				return
-			}
+		n, err := conn.Read(buf)
+		if err != nil {
+			log.Printf("Error while reading from a connection %s\n", err)
+			return
+		}
+		fmt.Printf("Read %d bytes: %v\n", n, buf[:n])
+		if parseFrame(buf[:n]) == 8 {
+			r := make([]byte, n)
+			r[0] = buf[0]
+			fmt.Printf("%v\n", r)
+			conn.Write(r)
+			return
 		}
 	}
+}
+
+func sendClose(c connection){
+
 }
 
 func parsePacket(p []byte) []string {
