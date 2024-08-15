@@ -134,9 +134,22 @@ func serveEstablishedConnection(c connection){
 			log.Printf("Error while reading from a connection %s\n", err)
 			return
 		}
-		fmt.Printf("Read %d bytes: %v\n", n, buf[:n])
-		fb := parseFrame(buf[:n])
-		if  fb.opc == 8 {
+		msg := buf[:n]
+		fmt.Printf("Read %d bytes: %v\n", n, msg)
+		fb := getFirstByte(msg)
+		log.Printf("OPCODE: %v\n", fb.opc)
+		if fb.opc == 0 {
+			// Continuation
+		} else if fb.opc == 1 {
+			pl := getPayloadLength(msg)
+			log.Printf("Payload length is %d\n", pl)
+
+			msg := unmaskMessage(msg, pl)
+			log.Printf("Received Message: %s", string(msg))
+			if fb.fin == 0 {
+				// It's not the last message
+			}
+		}	else if  fb.opc == 8 {
 			fmt.Println("Received Close request")
 			sendClose(c)
 			return
@@ -269,9 +282,39 @@ func craftControlWebSocketPacket(op string) []byte{
 	return p
 }
 
-func parseFrame(fr []byte) firstByte{
+func getFirstByte(fr []byte) firstByte{
 	fb := parseFirstByte(int(fr[0]))
 	
-	// TODO: Return a packet struct
 	return fb
+}
+
+func getPayloadLength(fr []byte) (pl int) {
+	pl0 := uint(fr[1] & 0b01111111)
+
+	if pl0 == 126 {
+
+	} else if pl0 == 127 {
+
+	} else {
+		pl = int(pl0)
+	}
+	return
+}
+
+func unmaskMessage(fr []byte, pl int) []byte{
+	decoded := make([]byte, pl)
+	mb := Bits(fr[0] & 0b10000000>>7)
+	if mb == 0 {
+		panic("Unmasked message received!")
+	}
+	
+	if pl < 126 {
+		mk := fr[2:6]
+		encoded := fr[6: 6+pl]
+		for i:=0; i < pl; i++ {
+			decoded[i] = encoded[i] ^ mk[i % 4]
+		}
+	}
+	
+	return decoded
 }
