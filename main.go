@@ -138,8 +138,7 @@ func serveEstablishedConnection(c connection){
 		fb := parseFrame(buf[:n])
 		if  fb.opc == 8 {
 			fmt.Println("Received Close request")
-			r := craftControlWebSocketPacket("close")
-			conn.Write(r)
+			sendClose(c)
 			return
 		}
 	}
@@ -178,7 +177,9 @@ func sendPing(c connection) bool{
 }
 
 func sendClose(c connection){
-
+	log.Println("Sending Close")
+	r := craftControlWebSocketPacket("close")
+	c.conn.Write(r)
 }
 
 func parsePacket(p []byte) []string {
